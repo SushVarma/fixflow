@@ -1,0 +1,170 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Core tenancy
+// ---------------------------------------------------------------------------
+
+model Business {
+  id             String   @id @default(cuid())
+  name           String
+  whatsappNumber String
+  serviceTypes   String[] @default(["AC Repair", "AC Installation", "AC Service", "Appliance Repair"])
+  createdAt      DateTime @default(now())
+
+  users        User[]
+  customers    Customer[]
+  technicians  Technician[]
+  conversations Conversation[]
+  jobs         Job[]
+  payments     Payment[]
+}
+
+model User {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  name       String
+  email      String   @unique
+  password   String
+  role       String   @default("owner") // owner | dispatcher
+  createdAt  DateTime @default(now())
+}
+
+model Technician {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  name       String
+  phone      String
+  skills     String[] @default([])
+  available  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  jobs Job[]
+}
+
+// ---------------------------------------------------------------------------
+// Customers & WhatsApp conversations
+// ---------------------------------------------------------------------------
+
+model Customer {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  name       String
+  phone      String
+  address    String?
+  createdAt  DateTime @default(now())
+
+  conversations Conversation[]
+  jobs          Job[]
+
+  @@unique([businessId, phone])
+}
+
+model Conversation {
+  id            String   @id @default(cuid())
+  businessId    String
+  business      Business @relation(fields: [businessId], references: [id])
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  status        String   @default("open") // open | resolved
+  lastMessageAt DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  messages Message[]
+
+  @@index([businessId, lastMessageAt])
+}
+
+model Message {
+  id                String       @id @default(cuid())
+  conversationId    String
+  conversation      Conversation @relation(fields: [conversationId], references: [id])
+  direction         String // inbound | outbound
+  type              String       @default("text") // text | image | template
+  text              String
+  mediaUrl          String?
+  whatsappMessageId String?
+  aiIntent          String? // repair | service | question | payment | other
+  aiExtracted       Json?
+  createdAt         DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Jobs
+// ---------------------------------------------------------------------------
+
+model Job {
+  id             String    @id @default(cuid())
+  businessId     String
+  business       Business  @relation(fields: [businessId], references: [id])
+  customerId     String
+  customer       Customer  @relation(fields: [customerId], references: [id])
+  technicianId   String?
+  technician     Technician? @relation(fields: [technicianId], references: [id])
+  serviceType    String
+  problem        String
+  address        String
+  status         String    @default("unassigned") // unassigned | scheduled | in_progress | completed | cancelled
+  scheduledAt    DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  estimatedMin   Int?
+  estimatedMax   Int?
+  findings       String[]  @default([])
+  partsUsed      Json?
+  laborCharge    Int?
+  totalAmount    Int?
+  createdAt      DateTime  @default(now())
+
+  events    JobEvent[]
+  payments  Payment[]
+  warranty  Warranty?
+
+  @@index([businessId, status])
+  @@index([businessId, scheduledAt])
+}
+
+model JobEvent {
+  id        String   @id @default(cuid())
+  jobId     String
+  job       Job      @relation(fields: [jobId], references: [id])
+  type      String // created | assigned | rescheduled | started | completed | payment_requested | payment_received
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([jobId, createdAt])
+}
+
+model Payment {
+  id         String   @id @default(cuid())
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  jobId      String
+  job        Job      @relation(fields: [jobId], references: [id])
+  amount     Int
+  status     String   @default("pending") // pending | paid | overdue
+  method     String? // upi | cash | card
+  requestedAt DateTime @default(now())
+  paidAt     DateTime?
+
+  @@index([businessId, status])
+}
+
+model Warranty {
+  id        String   @id @default(cuid())
+  jobId     String   @unique
+  job       Job      @relation(fields: [jobId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
